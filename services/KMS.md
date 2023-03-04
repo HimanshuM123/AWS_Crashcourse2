@@ -1,0 +1,63 @@
+# AWS Key Management Service (KMS)
+KMS is a managed service that makes it easy for you to create and control encryption keys used to encrypt your data. It is integrated with other AWS services, such as EBS, S3, RDS and others.
+
+## Useful Links
+- [AWS - KMS FAQs](https://aws.amazon.com/kms/faqs/)
+- [AWS Key Management Service Best Practices whitepaper](https://d0.awsstatic.com/whitepapers/aws-kms-best-practices.pdf)
+
+## General Notes
+- Encryption keys are **regional**
+- KMS is **multi-tenant**, if there's a requirement that doesn't allow it, you should use **CloudHSM** instead
+- Split **key administrative and key usage permissions** for security
+- **Customer Managed Key (CMK)** consists of:
+    - Alias
+    - Creation date
+    - Description
+    - Key state
+    - Key material (either customer provided or AWS generated)
+- Keys can never be exported
+- You can **share CMKs with external accounts** (only for usage)
+- Has **built-in auditing with CloudTrail**, it will track requests that AWS services send to KMS on your behalf
+    - CloudTrail is used to audit api calls between AWS services
+- To delete a key you need to first **disable** it and then **schedule deletion**, which **requires a waiting period from 7 to 30 days**
+- Cryptographic best practices **discourage extensive reuse of encryption keys**. You have two options to create new cryptographic material for your CMK, you can:
+    - **Create new CMK** and change your applications or aliases to use the new CMKs
+    - **Enable automatic key rotation** for an existing CMK
+- **Automatic key rotation**
+    - Benefits:
+        - **The properties of the key**, including its key ID, key ARN, region, policies, and permissions, **do not change when the key is rotated**
+        - You do not need to change applications or aliases that refer to the CMK ID or ARN
+        - After you enable key rotation, KMS **rotates the CMK automatically every year**. You don't need to remember or schedule the update.
+    - Is **disabled by default**
+    - KMS **saves the CMK's older cryptographic material in perpetuity** so it can be used to decrypt data that it encrypted. 
+    - KMS **does not delete any rotated key material** until you delete the CMK
+- **Envelope encryption** is the process of **encrypting the key that is used to encrypt data**
+    - CMK is used to decrypt the data key (aka envelope key)
+    - Envelope key is used to decrypt the data
+- Main commands from aws CLI (also available on API and SDKs):
+    - `aws kms encrypt`
+    - `aws kms decrypt`
+    - `aws kms re-encrypt` (when you want to re-encrypt the file with a new CMK)
+    - `aws kms enable-key-rotation`
+- **AWS services** that integrate with KMS **do not support the use of asymmetric keys**
+- **RSA CMK** and **ECC CMK** are a type of asymmetric key which cannot be used with other AWS services for integration
+- When you create a grant, the permissions might not take effect immediately. To mitigate the potential delay, use the **grant token that you receive in the response to your CreateGrant request**. You can **pass the grant token with some AWS KMS API requests to make the permissions in the grant take effect immediately**.
+    - **A grant token is not a secret**
+    - The grant token contains information about who the grant is for and therefore who can use it to cause the grant's permissions to take effect more quickly.
+- When decryting data you might get some errors, is good to have an idea of some of them:
+    - `IncorrectKeyException`
+        - The request was rejected because the specified CMK cannot decrypt the data.
+        - The `KeyId` in a Decrypt request and the `SourceKeyId` in a ReEncrypt request `must identify the same CMK that was used to encrypt` the ciphertext.
+    - `InvalidCiphertextException`
+        - From the Decrypt or ReEncrypt operation, the request was rejected because the specified ciphertext, or additional authenticated data incorporated into the ciphertext, such as the encryption context, is corrupted, missing, or otherwise invalid.
+        - From the ImportKeyMaterial operation, the request was rejected because AWS KMS could not decrypt the encrypted (wrapped) key material.
+        - You might get this error when the **EncryptionAlgorithm is set to default**, as asymmetric CMKs cannot use the default algorithm.
+            - Default algorithm is used for symmetric CMKs only.
+            - It is required to record the algorithm during encryption and provide the same one during decryption
+    - `InvalidKeyUsageException`
+        - The request was rejected for one of the following reasons:
+            - The KeyUsage value of the CMK is incompatible with the API operation.
+            - The encryption algorithm or signing algorithm specified for the operation is incompatible with the type of key material in the CMK (CustomerMasterKeySpec).
+        - For encrypting, decrypting, re-encrypting, and generating data keys, the KeyUsage must be ENCRYPT_DECRYPT.
+        - For signing and verifying, the KeyUsage must be SIGN_VERIFY.
+        - To find the KeyUsage of a CMK, use the `DescribeKey operation`.
